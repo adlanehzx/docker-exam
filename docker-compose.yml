@@ -1,0 +1,123 @@
+version: "3.8"
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: ecommerce-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ./services/auth-service
+      target: development
+    container_name: ecommerce-auth-service
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      MONGODB_URI: mongodb://root:password@mongodb:27017/auth?authSource=admin
+      JWT_SECRET: efrei_super_pass
+    volumes:
+      - ./services/auth-service/src:/app/src
+      - ./services/auth-service/package.json:/app/package.json
+      - /app/node_modules
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  # Product Service
+  product-service:
+    build:
+      context: ./services/product-service
+      target: development
+    container_name: ecommerce-product-service
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      MONGODB_URI: mongodb://root:password@mongodb:27017/products?authSource=admin
+    volumes:
+      - ./services/product-service/src:/app/src
+      - ./services/product-service/package.json:/app/package.json
+      - /app/node_modules
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  # Order Service
+  order-service:
+    build:
+      context: ./services/order-service
+      target: development
+    container_name: ecommerce-order-service
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      MONGODB_URI: mongodb://root:password@mongodb:27017/orders?authSource=admin
+      JWT_SECRET: efrei_super_pass
+      PRODUCT_SERVICE_URL: http://product-service:3000
+    volumes:
+      - ./services/order-service/src:/app/src
+      - ./services/order-service/package.json:/app/package.json
+      - /app/node_modules
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  # Frontend (Vue.js with Vite)
+  frontend:
+    build:
+      context: ./frontend
+      target: development
+    container_name: ecommerce-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      NODE_ENV: development
+      VITE_PRODUCT_SERVICE_URL: http://localhost:3000
+      VITE_AUTH_SERVICE_URL: http://localhost:3001
+      VITE_ORDER_SERVICE_URL: http://localhost:3002
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/package.json:/app/package.json
+      - /app/node_modules
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
